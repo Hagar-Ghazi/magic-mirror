@@ -10,7 +10,7 @@ readable pipeline of OpenCV operations: color spaces, masking, filtering, edges,
 The app is also built for teaching. Each spell exposes every intermediate image it produces, so the
 **Under the hood** tab shows exactly how the result was made, step by step.
 
-![Magic Mirror main screen](docs/images/app_main.jpg)
+![Magic Mirror main screen](docs/images/app_main.png)
 
 ---
 
