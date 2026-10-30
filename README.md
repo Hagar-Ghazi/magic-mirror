@@ -380,7 +380,7 @@ magic_mirror/
 **Requirements:** Python 3.10 or newer and a webcam for live mode.
 
 ```bash
-git clone https://github.com/<your-username>/magic-mirror.git
+git clone https://github.com/Hagar-Ghazi/magic-mirror.git
 cd magic-mirror
 python -m venv .venv
 ```
