@@ -2,6 +2,8 @@
 
 **Real-time camera effects built entirely with classic computer vision.**
 
+**Live demo:** [magic-mirror-wszt9zjekbyt4kmsmej5jl.streamlit.app](https://magic-mirror-wszt9zjekbyt4kmsmej5jl.streamlit.app/)
+
 Magic Mirror is a Streamlit application that turns a webcam, a photo or a video into a playground of
 "spells": an invisibility cloak, drawing in the air, face filters, a motion alarm and artistic filters.
 There is **no deep learning and no pretrained model** anywhere in the project. Every effect is a short,
