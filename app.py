@@ -1,238 +1,336 @@
+import hashlib
 import inspect
 import os
-import tempfile
-import threading
-import time
-from collections import deque
+from math import gcd
 
-import av
 import cv2
 import numpy as np
 import pandas as pd
 import streamlit as st
-from streamlit_webrtc import VideoProcessorBase, WebRtcMode, webrtc_streamer
 
-from core.helpers import put_label
-from core.preprocess import decode_image, prepare, to_rgb
-from core.turn import ice_servers
-from spells import ALL_SPELLS
+import studio.ops  # noqa: F401  (registers every tool)
+from studio.registry import CATEGORIES, TOOLS, by_category, defaults, describe, run
+from studio.utils import ASSETS, bgr, emoji_names, load_emoji
 
-st.set_page_config(page_title="Magic Mirror", page_icon="🪞", layout="wide")
+st.set_page_config(page_title="Photo Studio", page_icon="🎨", layout="wide")
 
-SPELLS = {f"{s.icon} {s.name}": s for s in ALL_SPELLS}
-SOURCES = {"Webcam live": "live", "Camera snapshot": "image", "Upload image": "image", "Upload video": "video"}
-
-
-class MirrorProcessor(VideoProcessorBase):
-    """Runs the selected spell on every webcam frame (in streamlit-webrtc's worker thread)."""
-
-    def __init__(self):
-        self.lock = threading.Lock()
-        self.spell, self.params = None, {}
-        self.flip, self.max_width, self.show_fps = True, 640, True
-        self.states = {}
-        self.latest_result, self.latest_steps = None, []
-        self.times = deque(maxlen=30)
-
-    def update(self, spell, params, flip, max_width, show_fps):
-        with self.lock:
-            self.spell, self.params = spell, params
-            self.flip, self.max_width, self.show_fps = flip, max_width, show_fps
-
-    def recv(self, frame):
-        img = frame.to_ndarray(format="bgr24")
-        with self.lock:
-            spell, params = self.spell, self.params
-            flip, max_width, show_fps = self.flip, self.max_width, self.show_fps
-        img = prepare(img, max_width, flip)
-        result, steps = img, [("Original", img)]
-        if spell is not None:
-            try:
-                result, steps = spell.process(img, params, self.states.setdefault(spell.name, {}))
-            except Exception as exc:  # keep the stream alive if a spell fails
-                result = put_label(img.copy(), f"Error: {exc}"[:60], bg=(0, 0, 160), scale=0.5)
-        self.times.append(time.time())
-        if show_fps and len(self.times) > 1:
-            fps = (len(self.times) - 1) / (self.times[-1] - self.times[0])
-            put_label(result, f"{fps:.0f} FPS", org=(result.shape[1] - 95, 30), scale=0.6)
-        self.latest_result, self.latest_steps = result, steps
-        return av.VideoFrame.from_ndarray(result, format="bgr24")
+MAX_HISTORY = 40
+SIZES = [640, 960, 1280, 1600, 2048]
+ss = st.session_state
 
 
-def spell_state(spell):
-    states = st.session_state.setdefault("spell_states", {})
-    return states.setdefault(spell.name, {})
+# ---------------- helpers ----------------
+def to_rgb(img):
+    return cv2.cvtColor(bgr(img), cv2.COLOR_BGR2RGB)
 
 
-def save_to_gallery(img, caption):
-    st.session_state.setdefault("gallery", []).insert(0, (caption, img.copy()))
-    st.toast("Saved to gallery")
-
-
-def show_steps(steps, result):
-    if not steps:
-        st.info("Run a spell first - the intermediate steps will appear here.")
-        return
-    cols = st.columns(3)
-    for i, (title, img) in enumerate(steps):
-        cols[i % 3].image(to_rgb(img), caption=f"{i + 1}. {title}", width="stretch")
-    if result is not None:
-        st.markdown("**Color histogram of the result**")
-        hist = {
-            name: cv2.calcHist([result], [ch], None, [64], [0, 256]).ravel()
-            for ch, name in enumerate(["Blue", "Green", "Red"])
-        }
-        st.line_chart(pd.DataFrame(hist), color=["#3B82F6", "#22C55E", "#EF4444"], height=220)
-
-
-def open_writer(shape, fps):
-    """Pick the first codec this OpenCV build can write, preferring browser-playable ones."""
-    h, w = shape[:2]
-    for codec, ext, mime in [("avc1", ".mp4", "video/mp4"), ("VP80", ".webm", "video/webm"), ("mp4v", ".mp4", "video/mp4")]:
-        path = os.path.join(tempfile.gettempdir(), f"magic_mirror_out{ext}")
-        writer = cv2.VideoWriter(path, cv2.VideoWriter_fourcc(*codec), fps, (w, h))
-        if writer.isOpened():
-            return writer, path, mime
-    raise RuntimeError("No video codec available")
-
-
-def process_video(data, spell, params, flip, max_width, max_frames):
-    src = os.path.join(tempfile.gettempdir(), "magic_mirror_in.mp4")
-    with open(src, "wb") as f:
-        f.write(data)
-    cap = cv2.VideoCapture(src)
-    fps = cap.get(cv2.CAP_PROP_FPS) or 25
-    total = int(min(cap.get(cv2.CAP_PROP_FRAME_COUNT) or max_frames, max_frames))
-    state, writer, mid = {}, None, None
-    bar = st.progress(0.0, text="Casting the spell on every frame...")
-    for i in range(total):
-        ok, frame = cap.read()
-        if not ok:
-            break
-        frame = prepare(frame, max_width, flip)
-        result, steps = spell.process(frame, params, state)
-        if writer is None:
-            writer, out_path, mime = open_writer(result.shape, fps)
-        writer.write(result)
-        if i == total // 2 or mid is None:
-            mid = (result, steps)
-        bar.progress((i + 1) / total, text=f"Frame {i + 1}/{total}")
-    cap.release()
-    bar.empty()
-    if writer is None:
-        st.error("Could not read any frames from this video.")
+def decode(data):
+    img = cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_UNCHANGED)
+    if img is None:
         return None
-    writer.release()
-    with open(out_path, "rb") as f:
-        return {"video": f.read(), "mime": mime, "result": mid[0], "steps": mid[1]}
+    if img.dtype != np.uint8:  # 16-bit PNG/TIFF
+        img = cv2.convertScaleAbs(img, alpha=255.0 / max(1, img.max()))
+    return bgr(img)
 
 
-# ---------------- Sidebar ----------------
+def limit_size(img, max_side):
+    h, w = img.shape[:2]
+    s = max_side / max(h, w)
+    return cv2.resize(img, (int(w * s), int(h * s)), interpolation=cv2.INTER_AREA) if s < 1 else img
+
+
+def history_sig():
+    return repr([(s["tool"], sorted(s["params"].items())) for s in ss.history])
+
+
+def rebuild(start=0):
+    """Replay history from step `start` (cache[i] is the image after i steps)."""
+    ss.cache = ss.cache[:start + 1]
+    for step in ss.history[start:]:
+        try:
+            ss.cache.append(run(TOOLS[step["tool"]], ss.cache[-1], step["params"], ss.aux))
+        except Exception as exc:  # keep going so one bad step cannot lock the editor
+            st.toast(f"{step['tool']} failed: {exc}")
+            ss.cache.append(ss.cache[-1])
+
+
+def load_original(img, key):
+    ss.source_key = key
+    ss.original_full = img
+    ss.history, ss.redo, ss.preview = [], [], {}
+    ss.cache = [limit_size(img, ss.get("max_side", 1280))]
+
+
+def png_bytes(img):
+    return cv2.imencode(".png", img)[1].tobytes()
+
+
+def jpg_bytes(img, q):
+    return cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, q])[1].tobytes()
+
+
+def widget(ui, tool, p):
+    key = f"{tool.name}|{p.key}"
+    if p.kind == "slider":
+        return ui.slider(p.label, p.min, p.max, p.default, p.step, key=key, help=p.help)
+    if p.kind == "range":
+        return tuple(ui.slider(p.label, p.min, p.max, tuple(p.default), p.step, key=key, help=p.help))
+    if p.kind == "select":
+        return ui.selectbox(p.label, p.options, index=p.options.index(p.default), key=key, help=p.help)
+    if p.kind == "toggle":
+        return ui.toggle(p.label, p.default, key=key, help=p.help)
+    if p.kind == "color":
+        return ui.color_picker(p.label, p.default, key=key, help=p.help)
+    if p.kind == "text":
+        return ui.text_input(p.label, p.default, key=key, help=p.help)
+    if p.kind == "textarea":
+        return ui.text_area(p.label, p.default, key=key, help=p.help, height=100)
+    if p.kind == "emoji":
+        names = emoji_names()
+        c1, c2 = ui.columns([4, 1], vertical_alignment="bottom")
+        choice = c1.selectbox(p.label, names, index=names.index(p.default) if p.default in names else 0, key=key)
+        icon = load_emoji(choice)
+        if icon is not None:
+            c2.image(cv2.cvtColor(icon, cv2.COLOR_BGRA2RGBA), width=40)
+        return choice
+    if p.kind == "image":
+        up = ui.file_uploader(p.label, type=["jpg", "jpeg", "png", "webp", "bmp"], key=key)
+        if up is None:
+            return None
+        digest = hashlib.sha1(up.getvalue()).hexdigest()[:12]
+        if digest not in ss.aux:
+            img = decode(up.getvalue())
+            if img is None:
+                ui.error("Could not read that image.")
+                return None
+            ss.aux[digest] = limit_size(img, 1600)
+        return digest
+    raise ValueError(p.kind)
+
+
+def histogram_frame(img):
+    data = {n: cv2.calcHist([img], [i], None, [128], [0, 256]).ravel() for i, n in enumerate(["Blue", "Green", "Red"])}
+    data["Gray"] = cv2.calcHist([cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)], [0], None, [128], [0, 256]).ravel()
+    df = pd.DataFrame(data)
+    df.index = df.index * 2
+    return df
+
+
+def show(where, img, label, max_height=620):
+    """Display an image without letting tall (portrait) photos push everything off screen."""
+    h, w = img.shape[:2]
+    width = int(max_height * w / h)
+    where.image(to_rgb(img), caption=f"{label} - {w} x {h} px", width=width if width < 900 else "stretch")
+
+
+# ---------------- state ----------------
+ss.setdefault("aux", {})
+ss.setdefault("history", [])
+ss.setdefault("redo", [])
+ss.setdefault("preview", {})
+
+# ---------------- sidebar: image ----------------
 sb = st.sidebar
-sb.title("🪞 Magic Mirror")
-sb.caption("Classic OpenCV spells - no deep learning.")
-source = sb.radio("Source", list(SOURCES), key="source")
-mode = SOURCES[source]
-spell_label = sb.selectbox("Spell", list(SPELLS), key="spell")
-spell = SPELLS[spell_label]
-sb.caption(spell.tagline)
-
-sb.subheader("Spell settings")
-params = spell.sidebar(sb, mode)
-params["mode"] = mode
-
-sb.subheader("Display")
-flip = sb.toggle("Mirror flip", mode == "live", key="flip")
-show_fps = sb.toggle("Show FPS", True, key="fps") if mode == "live" else False
-max_width = sb.select_slider("Processing width", [320, 480, 640, 800, 1024], 640, key="width")
-if sb.button("Reset this spell", width="stretch"):
-    st.session_state.get("spell_states", {}).pop(spell.name, None)
-    st.session_state["video_out"] = None
-
-# ---------------- Main ----------------
-st.title(f"{spell.icon} {spell.name}")
-tab_live, tab_hood, tab_gallery, tab_how = st.tabs(["Live", "Under the hood", "Gallery", "How it works"])
-result, steps = None, []
-
-with tab_live:
-    if mode == "live":
-        if "ice" not in st.session_state:  # fetch TURN credentials once per session
-            st.session_state["ice"] = ice_servers()
-        servers, turn_status, turn_ok = st.session_state["ice"]
-        ctx = webrtc_streamer(
-            key="mirror",
-            mode=WebRtcMode.SENDRECV,
-            rtc_configuration={"iceServers": servers},
-            video_processor_factory=MirrorProcessor,
-            media_stream_constraints={"video": True, "audio": False},
-            async_processing=True,
-        )
-        processor = ctx.video_processor
-        if processor:
-            processor.update(spell, params, flip, max_width, show_fps)
-            result, steps = processor.latest_result, processor.latest_steps
-            if st.button("📸 Snapshot to gallery") and result is not None:
-                save_to_gallery(result, spell.name)
+sb.title("🎨 Photo Studio")
+sb.caption("Every classic image operation from the course, in one editor.")
+upload = sb.file_uploader("Upload a photo", type=["jpg", "jpeg", "png", "webp", "bmp", "tif", "tiff"])
+if upload is not None:
+    key = f"upload:{upload.name}:{upload.size}"
+    if ss.get("source_key") != key:
+        img = decode(upload.getvalue())
+        if img is None:
+            sb.error("That file is not an image OpenCV can read.")
         else:
-            st.info("Press **START** and allow camera access. If the video never connects "
-                    "(some networks block WebRTC), switch the source to **Camera snapshot**.")
-        if turn_ok:
-            st.caption(turn_status)
-        else:
-            st.warning(f"{turn_status} See *Enabling live webcam on the cloud* in the README.")
-    elif mode == "image":
-        if source == "Camera snapshot":
-            shot = st.camera_input("Take a photo")
-        else:
-            shot = st.file_uploader("Upload an image", type=["jpg", "jpeg", "png", "bmp", "webp"])
-        if shot is not None:
-            frame = decode_image(shot.getvalue())
-            if frame is None:
-                st.error("That file is not an image OpenCV can read.")
-            else:
-                frame = prepare(frame, max_width, flip)
-                result, steps = spell.process(frame, params, spell_state(spell))
-                st.image(to_rgb(result), width="stretch")
-                c1, c2 = st.columns(2)
-                if c1.button("📸 Save to gallery", width="stretch"):
-                    save_to_gallery(result, spell.name)
-                c2.download_button("⬇️ Download", cv2.imencode(".png", result)[1].tobytes(),
-                                   "magic_mirror.png", "image/png", width="stretch")
+            load_original(img, key)
+elif ss.get("source_key") != "sample":
+    load_original(cv2.imread(os.path.join(ASSETS, "sample.jpg")), "sample")
+if ss.source_key == "sample":
+    sb.info("Showing a sample photo. Upload your own to edit it.")
+
+max_side = sb.select_slider("Working size (longest side, px)", SIZES, value=ss.get("max_side", 1280),
+                            help="Big photos are scaled down while editing so every tool stays fast.")
+if max_side != ss.get("max_side", 1280):
+    ss.max_side = max_side
+    ss.cache = [limit_size(ss.original_full, max_side)]
+    rebuild(0)
+
+# ---------------- sidebar: tool ----------------
+sb.divider()
+category = sb.pills("Category", CATEGORIES, default="Adjust", key="category") or "Adjust"
+tools = by_category(category)
+tool_name = sb.selectbox("Tool", [t.name for t in tools], key=f"tool_{category}")
+tool = TOOLS[tool_name]
+
+params = {}
+for p in tool.params:
+    if p.when and not p.when({**defaults(tool), **params}):
+        params[p.key] = p.default
+        continue
+    params[p.key] = widget(sb, tool, p)
+
+live = sb.toggle("Live preview", not tool.heavy, key=f"live|{tool.name}",
+                 help="Slow tools preview only when you press Preview.")
+c1, c2 = sb.columns(2)
+apply_clicked = c1.button("Apply", type="primary", width="stretch")
+if c2.button("Reset settings", width="stretch"):
+    for p in tool.params:
+        ss.pop(f"{tool.name}|{p.key}", None)
+    st.rerun()
+preview_clicked = False if live else sb.button("Preview", width="stretch")
+
+# ---------------- compute preview ----------------
+current = ss.cache[-1]
+pkey = (history_sig(), ss.get("max_side", 1280), tool.name, repr(sorted(params.items())))
+after, error = None, None
+just_applied = ss.get("applied_key") == pkey  # don't preview the same tool twice right after Apply
+if (live and not just_applied) or preview_clicked or apply_clicked:
+    if pkey in ss.preview:
+        after = ss.preview[pkey]
     else:
-        up = st.file_uploader("Upload a video", type=["mp4", "avi", "mov", "mkv", "webm"])
-        max_frames = st.slider("Max frames to process", 30, 900, 300, step=30)
-        if up is not None and st.button("✨ Cast spell on video", type="primary"):
-            st.session_state["video_out"] = process_video(up.getvalue(), spell, params, flip, max_width, max_frames)
-        out = st.session_state.get("video_out")
-        if out:
-            st.video(out["video"], format=out["mime"])
-            st.download_button("⬇️ Download result", out["video"],
-                               "magic_mirror" + (".webm" if out["mime"] == "video/webm" else ".mp4"), out["mime"])
-            result, steps = out["result"], out["steps"]
+        try:
+            with st.spinner(f"Applying {tool.name}..."):
+                after = run(tool, current, params, ss.aux)
+            ss.preview = {pkey: after}
+        except Exception as exc:
+            error = exc
 
-with tab_hood:
-    st.caption("Every step the spell took on the current frame (middle frame for videos).")
-    if mode == "live":
-        st.button("🔄 Refresh from live video")
-    show_steps(steps, result)
+if apply_clicked and after is not None:
+    ss.history.append({"tool": tool.name, "params": params})
+    ss.cache.append(after)
+    ss.redo = []
+    if len(ss.history) > MAX_HISTORY:  # fold the oldest step into the base image
+        ss.history.pop(0)
+        ss.cache.pop(0)
+        ss.original_full = ss.cache[0]
+    st.toast(f"Applied {tool.name}")
+    current = ss.cache[-1]
+    ss.applied_key = (history_sig(), ss.get("max_side", 1280), tool.name, repr(sorted(params.items())))
+    just_applied = True
 
-with tab_gallery:
-    gallery = st.session_state.get("gallery", [])
-    if not gallery:
-        st.info("Snapshots you save will appear here.")
-    cols = st.columns(3)
-    for i, (caption, img) in enumerate(gallery):
-        with cols[i % 3]:
-            st.image(to_rgb(img), caption=caption, width="stretch")
-            st.download_button("Download", cv2.imencode(".png", img)[1].tobytes(), f"snapshot_{i}.png",
-                               "image/png", key=f"dl_{i}")
+# ---------------- main: toolbar ----------------
+st.markdown(f"### {tool.name}  \n<span style='opacity:.7'>{category}</span>", unsafe_allow_html=True)
+bar = st.columns([1, 1, 1, 1.4, 1.4, 2.4])
+if bar[0].button("Undo", disabled=not ss.history, width="stretch"):
+    ss.redo.append(ss.history.pop())
+    ss.cache.pop()
+    st.rerun()
+if bar[1].button("Redo", disabled=not ss.redo, width="stretch"):
+    step = ss.redo.pop()
+    ss.history.append(step)
+    ss.cache.append(run(TOOLS[step["tool"]], ss.cache[-1], step["params"], ss.aux))
+    st.rerun()
+if bar[2].button("Reset all", disabled=not ss.history, width="stretch"):
+    ss.redo = list(reversed(ss.history))
+    ss.history = []
+    ss.cache = ss.cache[:1]
+    st.rerun()
+shown_after = after if after is not None else current
+bar[3].download_button("Download PNG", png_bytes(shown_after), "photo_studio.png", "image/png", width="stretch")
+bar[4].download_button("Download JPG", jpg_bytes(shown_after, 92), "photo_studio.jpg", "image/jpeg", width="stretch")
+view = bar[5].segmented_control("View", ["Side by side", "After", "Before"], default="Side by side",
+                                label_visibility="collapsed") or "Side by side"
+compare_to = st.radio("Before means", ["Before this tool", "Original photo"], horizontal=True,
+                      label_visibility="collapsed")
+
+if error is not None:
+    st.error(f"{tool.name} could not run with these settings: {error}")
+before = current if compare_to == "Before this tool" else ss.cache[0]
+if apply_clicked:
+    before = ss.cache[-2] if compare_to == "Before this tool" and len(ss.cache) > 1 else before
+
+if view == "Side by side":
+    left, right = st.columns(2)
+    show(left, before, "Before")
+    show(right, shown_after, "After")
+else:
+    show(st, shown_after if view == "After" else before, view, max_height=760)
+if just_applied:
+    st.success(f"{tool.name} applied. Change a setting to preview it again on top, or pick another tool.")
+elif not live and after is None:
+    st.info("Live preview is off for this tool. Press **Preview** or **Apply** in the sidebar.")
+
+# ---------------- main: panels ----------------
+tab_how, tab_hist, tab_pixel, tab_history, tab_info = st.tabs(
+    ["How it works", "Histogram", "Pixel inspector", f"History ({len(ss.history)})", "Image info"])
 
 with tab_how:
-    st.markdown(spell.explain)
-    with st.expander("Show the code of this spell"):
-        st.code(inspect.getsource(type(spell).process), language="python")
-    st.markdown("---")
-    st.markdown(
-        "**Built with:** Streamlit, streamlit-webrtc, OpenCV, NumPy. "
-        "Every effect uses only classic computer vision from Labs 01-05."
+    st.markdown(tool.explain or "_No description._")
+    with st.expander("Show the code of this tool"):
+        st.code(inspect.getsource(tool.fn), language="python")
+
+with tab_hist:
+    hc1, hc2 = st.columns(2)
+    colors = ["#3B82F6", "#22C55E", "#EF4444", "#A3A3A3"]
+    hc1.markdown("**Before**")
+    hc1.line_chart(histogram_frame(before), color=colors, height=260)
+    hc2.markdown("**After**")
+    hc2.line_chart(histogram_frame(shown_after), color=colors, height=260)
+    g1, g2 = cv2.cvtColor(before, cv2.COLOR_BGR2GRAY), cv2.cvtColor(shown_after, cv2.COLOR_BGR2GRAY)
+    m = st.columns(4)
+    m[0].metric("Mean brightness", f"{g2.mean():.0f}", f"{g2.mean() - g1.mean():+.0f}")
+    m[1].metric("Contrast (std)", f"{g2.std():.0f}", f"{g2.std() - g1.std():+.0f}")
+    m[2].metric("Darkest", int(g2.min()))
+    m[3].metric("Brightest", int(g2.max()))
+    st.caption("x axis: pixel value 0-255, y axis: number of pixels. Try Histogram equalization or "
+               "Brightness and contrast and watch the curves move.")
+
+with tab_pixel:
+    img = shown_after
+    h, w = img.shape[:2]
+    pc1, pc2 = st.columns(2)
+    px = pc1.slider("X (column)", 0, w - 1, w // 2)
+    py = pc1.slider("Y (row)", 0, h - 1, h // 2)
+    b, g, r = (int(v) for v in img[py, px])
+    one = np.uint8([[[b, g, r]]])
+    hsv = cv2.cvtColor(one, cv2.COLOR_BGR2HSV)[0, 0]
+    lab = cv2.cvtColor(one, cv2.COLOR_BGR2LAB)[0, 0]
+    gray_v = int(cv2.cvtColor(one, cv2.COLOR_BGR2GRAY)[0, 0])
+    pc1.markdown(
+        f"| Space | Values |\n|---|---|\n"
+        f"| BGR (OpenCV order) | {b}, {g}, {r} |\n| RGB | {r}, {g}, {b} |\n"
+        f"| HSV | {hsv[0]}, {hsv[1]}, {hsv[2]} |\n| LAB | {lab[0]}, {lab[1]}, {lab[2]} |\n"
+        f"| Gray | {gray_v} |\n| Hex | #{r:02X}{g:02X}{b:02X} |\n\n"
+        f"In NumPy this pixel is `img[{py}, {px}]`: **row first, then column**."
     )
+    k = 7
+    patch = cv2.copyMakeBorder(img, k, k, k, k, cv2.BORDER_CONSTANT, value=0)[py:py + 2 * k + 1, px:px + 2 * k + 1]
+    zoom = cv2.resize(patch, (300, 300), interpolation=cv2.INTER_NEAREST)
+    c = 300 // (2 * k + 1)
+    cv2.rectangle(zoom, (k * c, k * c), ((k + 1) * c, (k + 1) * c), (0, 255, 255), 2)
+    pc2.image(to_rgb(zoom), caption="15 x 15 pixels around the point (nearest-neighbour zoom)", width=300)
+
+with tab_history:
+    if not ss.history:
+        st.info("No edits yet. Choose a tool in the sidebar and press Apply.")
+    for i, step in enumerate(ss.history):
+        hc = st.columns([0.5, 5, 1.2, 1.4])
+        hc[0].markdown(f"**{i + 1}**")
+        hc[1].markdown(f"**{step['tool']}**  \n<span style='opacity:.7'>{describe(TOOLS[step['tool']], step['params'])}</span>",
+                       unsafe_allow_html=True)
+        if hc[2].button("Remove", key=f"rm{i}", width="stretch"):
+            ss.history.pop(i)
+            rebuild(i)
+            st.rerun()
+        if hc[3].button("Back to here", key=f"bk{i}", width="stretch"):
+            ss.redo = list(reversed(ss.history[i + 1:]))
+            ss.history = ss.history[:i + 1]
+            ss.cache = ss.cache[:i + 2]
+            st.rerun()
+
+with tab_info:
+    img = shown_after
+    h, w = img.shape[:2]
+    d = gcd(w, h)
+    i1, i2, i3, i4 = st.columns(4)
+    i1.metric("Width x height", f"{w} x {h}")
+    i2.metric("Aspect ratio", f"{w // d}:{h // d}" if w // d < 50 else f"{w / h:.2f}:1")
+    i3.metric("Pixels", f"{w * h / 1e6:.2f} MP")
+    i4.metric("Shape (NumPy)", str(img.shape))
+    j1, j2, j3, j4 = st.columns(4)
+    mean = img.reshape(-1, 3).mean(0)
+    j1.metric("Data type", str(img.dtype))
+    j2.metric("Mean B, G, R", ", ".join(f"{v:.0f}" for v in mean))
+    j3.metric("PNG size", f"{len(png_bytes(img)) / 1024:.0f} KB")
+    j4.metric("JPG size (q=92)", f"{len(jpg_bytes(img, 92)) / 1024:.0f} KB")
+    oh, ow = ss.original_full.shape[:2]
+    st.caption(f"Original upload: {ow} x {oh} px. Editing at up to {ss.get('max_side', 1280)} px on the longest side.")

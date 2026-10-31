@@ -1,355 +1,421 @@
-# Magic Mirror
+# Photo Studio
 
-**Real-time camera effects built entirely with classic computer vision.**
+**A complete photo editor built only with classic computer vision.**
 
 **Live demo:** [magic-mirror-wszt9zjekbyt4kmsmej5jl.streamlit.app](https://magic-mirror-wszt9zjekbyt4kmsmej5jl.streamlit.app/)
 
-Magic Mirror is a Streamlit application that turns a webcam, a photo or a video into a playground of
-"spells": an invisibility cloak, drawing in the air, face filters, a motion alarm and artistic filters.
-There is **no deep learning and no pretrained model** anywhere in the project. Every effect is a short,
-readable pipeline of OpenCV operations: color spaces, masking, filtering, edges, contours and Haar cascades.
+Photo Studio is a Streamlit application that lets you upload a photo and edit it from every angle: light
+and color, geometry, body and face reshaping, blur and noise, edges, thresholds, histograms, artistic
+filters, text, emoji, borders, masks and object detection. It has **73 tools in 12 categories**, and every
+one is a short, readable pipeline of OpenCV and NumPy operations. There is **no deep learning and no
+pretrained model** anywhere in the project.
 
-The app is also built for teaching. Each spell exposes every intermediate image it produces, so the
-**Under the hood** tab shows exactly how the result was made, step by step.
-
-![Magic Mirror main screen](docs/images/app_main.png)
+The editor is also built for teaching. Every tool explains what it does and shows its own source code,
+and the histogram, pixel inspector and before/after views make the effect of each operation visible.
 
 ---
 
 ## Table of contents
 
-1. [Features](#features)
-2. [The five spells](#the-five-spells)
+1. [Highlights](#highlights)
+2. [Tool catalog](#tool-catalog)
 3. [Architecture](#architecture)
-4. [How a frame flows through the app](#how-a-frame-flows-through-the-app)
-5. [Spell pipelines in detail](#spell-pipelines-in-detail)
-6. [Concepts covered](#concepts-covered)
-7. [Project structure](#project-structure)
-8. [Getting started](#getting-started)
-9. [Using the app](#using-the-app)
-10. [Deploying to Streamlit Community Cloud](#deploying-to-streamlit-community-cloud)
-11. [Design decisions and edge cases](#design-decisions-and-edge-cases)
-12. [Extending: add your own spell](#extending-add-your-own-spell)
-13. [Troubleshooting](#troubleshooting)
-14. [Tech stack](#tech-stack)
+4. [How editing works](#how-editing-works)
+5. [Concepts covered](#concepts-covered)
+6. [Project structure](#project-structure)
+7. [Getting started](#getting-started)
+8. [Using the editor](#using-the-editor)
+9. [Deploying to Streamlit Community Cloud](#deploying-to-streamlit-community-cloud)
+10. [Adding a new tool](#adding-a-new-tool)
+11. [Design decisions](#design-decisions)
+12. [Troubleshooting](#troubleshooting)
+13. [Tech stack and credits](#tech-stack-and-credits)
 
 ---
 
-## Features
+## Highlights
 
-| Area | What you get |
+| Feature | Details |
 |---|---|
-| Spells | Five independent effects, each in its own module |
-| Input sources | Live webcam (WebRTC), single camera snapshot, image upload, video upload |
-| Live controls | Every threshold, kernel size and color range is a sidebar slider, so changes are visible immediately |
-| Under the hood | Every intermediate image of the current frame, plus a color histogram of the result |
-| How it works | A plain-language explanation of each spell and the exact source code it runs |
-| Gallery | Save snapshots during a session and download them as PNG |
-| Video export | Process an uploaded video frame by frame and download the result |
-| Performance | Adjustable processing width, a half-resolution fast mode and an on-screen FPS counter |
+| 73 tools, 12 categories | Adjust, Color, Geometry, Reshape, Blur and noise, Edges, Threshold and morphology, Histogram, Artistic, Annotate, Masks and blending, Detect |
+| Live preview | Every slider updates the result immediately; slow tools preview on demand |
+| Non-destructive history | Edits are stored as steps. Undo, redo, remove any step or go back to any point |
+| Before and after | Side by side, after only or before only; compare with the previous step or the original photo |
+| Histogram panel | Blue, green, red and gray histograms before and after, with brightness and contrast metrics |
+| Pixel inspector | BGR, RGB, HSV, LAB, gray and hex values of any pixel, plus a 15 x 15 zoom |
+| Image info | Size, aspect ratio, NumPy shape, data type, mean color and file sizes |
+| How it works | A plain explanation of each tool and the exact code it runs |
+| Export | Download the result as PNG or JPG |
+| Body and face reshaping | Enlarge or shrink faces, slim or widen, make a person taller, bulge, pinch and swirl |
+| Text and emoji | Text at any position with fonts, outline and background box; 33 emoji with size, rotation and opacity |
 
 ---
 
-## The five spells
+## Tool catalog
 
-| Spell | What it does | Core techniques |
+Every image in this section was generated by running the tools from this repository on the same photo.
+
+### Adjust
+
+<p align="center"><img src="docs/images/adjust.jpg" alt="Adjust tools" width="100%"></p>
+
+| Tool | What it does | Core operations |
 |---|---|---|
-| **Invisibility cloak** | Anything covered by a solid-colored cloth disappears and the background shows through | HSV `inRange`, morphological opening, `bitwise_and`, median background |
-| **Air drawing** | Move a brightly colored pen cap and draw lines in the air | Color tracking, largest contour, image moments, position smoothing |
-| **Face filters** | Sunglasses, mustache and crown stickers, or pixelate and blur faces for privacy | Haar cascades, histogram equalization, alpha blending, resizing |
-| **Motion alarm** | Draws boxes around anything that moves and counts alarms | Running-average background, `absdiff`, thresholding, contours |
-| **Art filters** | Cartoon, pencil sketch, vintage, emboss and neon edges | Bilateral filter, adaptive threshold, color dodge, `filter2D`, Canny |
+| Brightness and contrast | `alpha * pixel + beta` with clipping | `cv2.convertScaleAbs` |
+| Gamma correction | Brightens or darkens mid-tones only | Lookup table, `cv2.LUT` |
+| Hue, saturation and value | Rotates colors, makes them richer or grayer | `cvtColor` to HSV, channel math |
+| Temperature and tint | Warm or cool, green or magenta | Per-channel arithmetic |
+| Sharpen | Unsharp masking | `GaussianBlur`, `addWeighted` |
+| Invert (negative) | `255 - pixel` | `cv2.bitwise_not` |
+| Posterize | Few levels per channel | Integer division (quantization) |
 
-<p align="center">
-  <img src="docs/images/art_gallery.png" alt="Art filters applied to the same image" width="100%">
-  <br><em>Art filters on the same input: original, cartoon, pencil sketch, vintage, emboss and neon edges.</em>
-</p>
+### Color
+
+<p align="center"><img src="docs/images/color.jpg" alt="Color tools" width="100%"></p>
+
+| Tool | What it does | Core operations |
+|---|---|---|
+| Grayscale | Weighted, average, lightness or single channel | `cvtColor`, NumPy reductions |
+| Color space explorer | Shows HSV, HLS, LAB, YCrCb or BGR channels in a grid | `cvtColor`, `split` |
+| Channels: keep and swap | Turn channels off, reorder BGR to RGB and others | `split`, `merge` |
+| Split channels (grid) | Blue, green and red planes, tinted or gray | `split`, `merge` |
+| Color range (HSV mask) | Color splash, keep, remove or recolor one color | `inRange`, masking |
+| Fill with solid color | Color wash over the photo | `np.full`, `addWeighted` |
+
+### Geometry
+
+<p align="center"><img src="docs/images/geometry.jpg" alt="Geometry tools" width="100%"></p>
+
+| Tool | What it does | Core operations |
+|---|---|---|
+| Resize | By percent or exact size, five interpolation methods | `cv2.resize` |
+| Crop | Any rectangle | NumPy slicing (ROI) |
+| Crop to aspect ratio | 1:1, 4:3, 16:9, 9:16 and more around any center | Slicing |
+| Rotate | Any angle, optional canvas growth, border modes | `getRotationMatrix2D`, `warpAffine` |
+| Rotate 90 degrees | Lossless quarter turns | `cv2.rotate` |
+| Flip | Horizontal, vertical or both | `cv2.flip` |
+| Translate (shift) | Moves the image with a border mode | Affine matrix, `warpAffine` |
+| Shear (affine) | Slants the image from three point pairs | `getAffineTransform`, `transform` |
+| Perspective (tilt) | Squeezes any edge for a 3D lean | `getPerspectiveTransform`, `warpPerspective` |
+
+### Reshape (body and face)
+
+<p align="center"><img src="docs/images/reshape.jpg" alt="Reshape tools" width="100%"></p>
+
+| Tool | What it does | Core operations |
+|---|---|---|
+| Face size | Enlarges or shrinks detected faces (or any point) | Haar cascade, radial warp with `cv2.remap` |
+| Bulge or pinch | Fish-eye bulge or pinch anywhere | `cv2.remap` |
+| Swirl | Twists a circular area | `cv2.remap` |
+| Slim or widen | Narrows or widens a body, optionally only some rows | Horizontal `cv2.remap`, feathered blending |
+| Height stretch | Makes a person taller or shorter by stretching the legs region | Slicing, `cv2.resize`, `np.vstack` |
+
+How the radial warp works: for every output pixel the tool computes *where to read from*. Reading closer to the
+center magnifies, reading farther away shrinks, and the effect fades smoothly to zero at the edge of the circle.
+
+```mermaid
+flowchart LR
+    A["Output pixel (x, y)"] --> B["Distance d to center,<br/>normalized by radius"]
+    B --> C{"d < 1 ?"}
+    C -- no --> D["Read the same pixel"]
+    C -- yes --> E["scale = 1 - strength * (1 - d)^2"]
+    E --> F["Read from center + offset * scale"]
+    D & F --> G["cv2.remap builds the new image"]
+```
+
+### Blur and noise
+
+<p align="center"><img src="docs/images/blur_and_noise.jpg" alt="Blur and noise tools" width="100%"></p>
+
+| Tool | What it does | Core operations |
+|---|---|---|
+| Blur | Average, Gaussian, median or bilateral | `blur`, `GaussianBlur`, `medianBlur`, `bilateralFilter` |
+| Motion blur | Smears along a direction | Rotated line kernel, `filter2D` |
+| Add noise | Gaussian, salt and pepper or speckle, reproducible seed | NumPy random |
+| Denoise | Removes noise and keeps texture | `fastNlMeansDenoisingColored` |
+| Custom kernel | Any convolution kernel, with presets | `cv2.filter2D` |
+
+### Edges
+
+<p align="center"><img src="docs/images/edges.jpg" alt="Edge tools" width="100%"></p>
+
+| Tool | What it does | Core operations |
+|---|---|---|
+| Canny | Thin, clean edges with hysteresis | `cv2.Canny` |
+| Sobel | First derivative in X, Y or magnitude | `cv2.Sobel` |
+| Laplacian | Second derivative, all directions | `cv2.Laplacian` |
+| Scharr | More accurate 3 x 3 derivative | `cv2.Scharr` |
+| Prewitt | Simplest derivative kernel | `cv2.filter2D` |
+
+Each edge tool can show the edges alone, inverted (black on white) or drawn in color over the photo.
+
+### Threshold and morphology
+
+<p align="center"><img src="docs/images/threshold_and_morphology.jpg" alt="Threshold and morphology tools" width="100%"></p>
+
+| Tool | What it does | Core operations |
+|---|---|---|
+| Threshold (binary) | Five threshold types, manual, Otsu or Triangle | `cv2.threshold` |
+| Adaptive threshold | Per-pixel threshold for uneven lighting | `cv2.adaptiveThreshold` |
+| Morphology | Erode, dilate, open, close, gradient, top hat, black hat | `getStructuringElement`, `morphologyEx` |
+
+### Histogram
+
+<p align="center"><img src="docs/images/histogram.jpg" alt="Histogram tools" width="100%"></p>
+
+| Tool | What it does | Core operations |
+|---|---|---|
+| Histogram equalization | On luminance, grayscale or each channel | `equalizeHist`, YCrCb |
+| CLAHE | Tile-based equalization with a clip limit | `cv2.createCLAHE` |
+| Normalize | Min-max contrast stretch with percentile clipping | `cv2.normalize` |
+
+The **Histogram** panel under the image shows the effect of every tool on the distribution of pixel values.
+
+### Artistic
+
+<p align="center"><img src="docs/images/artistic.jpg" alt="Artistic tools" width="100%"></p>
+
+| Tool | Core operations |
+|---|---|
+| Cartoon | Bilateral filter, adaptive threshold lines, `bitwise_and` |
+| Pencil sketch | Color dodge with `cv2.divide`, gray or color |
+| Sepia | 3 x 3 color matrix with `cv2.transform` |
+| Vintage photo | Sepia, fade, film grain, vignette |
+| Vignette | Soft radial mask, any center and color |
+| Emboss | Directional kernel, gray or colored relief |
+| Pixelate | Whole image, detected faces or a shape |
+| False color | `cv2.applyColorMap` with 11 palettes |
+| Duotone | Two-color mapping of gray values |
+| Neon edges | Canny edges colored in HSV with a glow |
+| Stylization | `cv2.stylization` (watercolor look) |
+| Detail enhance | `cv2.detailEnhance` (HDR look) |
+
+### Annotate
+
+<p align="center"><img src="docs/images/annotate.jpg" alt="Annotate tools" width="100%"></p>
+
+| Tool | What it does | Core operations |
+|---|---|---|
+| Text | Any position, 7 fonts, italic, size, outline, background box with opacity | `putText`, `getTextSize`, `addWeighted` |
+| Emoji | 33 emoji, position, size, rotation, mirror, opacity | Alpha blending of RGBA images |
+| Face stickers | Sunglasses, mustache or crown on every detected face | Haar cascade, alpha blending |
+| Shapes | Rectangle, circle, ellipse, line, arrow, star; filled or outlined | `rectangle`, `circle`, `ellipse`, `arrowedLine`, `fillPoly` |
+| Border and padding | Constant, reflect, replicate or wrap, per side | `cv2.copyMakeBorder` |
+| Watermark | Corner, center or tiled diagonal, transparent | `putText`, `warpAffine`, alpha blending |
+| Frame shape | Rounded corners, circle or ellipse | Mask drawing and blending |
+
+### Masks and blending
+
+<p align="center"><img src="docs/images/masks_and_blending.jpg" alt="Masks and blending tools" width="100%"></p>
+
+| Tool | What it does | Core operations |
+|---|---|---|
+| Blend with another image | Weighted, add, subtract, difference, multiply, screen, lighten, darken | `addWeighted`, `add`, `subtract`, `absdiff`, `multiply` |
+| Shape mask | Blur, gray, darken, pixelate or color outside (or inside) a soft shape | Mask drawing, blending |
+| Bitwise operations | AND, OR, XOR, NOT with a shape or a second image | `bitwise_and`, `bitwise_or`, `bitwise_xor`, `bitwise_not` |
+| Chroma key | Replaces one color with an image, a color or a blur | `inRange` in HSV, morphology |
+
+The blend tool includes **"Add (NumPy, wraps around)"** next to **"Add (cv2.add, saturates)"** to show why
+`uint8` arithmetic in NumPy overflows (250 + 10 = 4) while OpenCV clips at 255.
+
+### Detect
+
+<p align="center"><img src="docs/images/detect.jpg" alt="Detection tools" width="100%"></p>
+
+| Tool | What it does | Core operations |
+|---|---|---|
+| Faces and eyes | Faces, eyes and smiles with counts | Haar cascades |
+| Contours and shapes | Finds objects, names triangles, rectangles, circles | `findContours`, `approxPolyDP`, `boundingRect`, `minAreaRect`, `convexHull` |
+| Corners | Harris or Shi-Tomasi corners | `cornerHarris`, `goodFeaturesToTrack` |
+| ORB keypoints | Keypoints with scale and orientation | `ORB_create`, `drawKeypoints` |
+| Feature matching | Matches the same object between two photos | ORB, `BFMatcher`, ratio test, `drawMatches` |
+| Template matching | Finds every copy of a patch; shows the score map | `matchTemplate`, non-maximum suppression |
+| Document scanner | Finds a page and flattens it to a top-down scan | Canny, contours, `getPerspectiveTransform` |
+
+```mermaid
+flowchart LR
+    A["Photo of a page"] --> B["Gray + blur"] --> C["Canny + dilate"] --> D["findContours"]
+    D --> E{"Largest contour with<br/>4 corners?"}
+    E -- no --> X["Message: adjust thresholds"]
+    E -- yes --> F["Order corners<br/>TL, TR, BR, BL"] --> G["getPerspectiveTransform"] --> H["warpPerspective"]
+    H --> I["Optional adaptive threshold<br/>for a clean scan"]
+```
 
 ---
 
 ## Architecture
 
-The application is split into three layers. The **UI layer** (`app.py`) knows about Streamlit and
-input sources. The **spell layer** (`spells/`) knows only about images: every spell receives a BGR frame and
-returns a result plus its intermediate steps. The **core layer** (`core/`) holds small reusable OpenCV helpers.
+The project has three layers. `app.py` is the Streamlit interface. `studio/registry.py` defines what a tool is.
+`studio/ops/` holds the tools themselves, one module per category, and none of them knows anything about Streamlit.
 
 ```mermaid
 flowchart TB
-    subgraph Inputs
-        A1["Webcam live<br/>streamlit-webrtc"]
-        A2["Camera snapshot<br/>st.camera_input"]
-        A3["Image upload"]
-        A4["Video upload"]
+    subgraph UI["app.py (Streamlit)"]
+        U1["Upload + working size"]
+        U2["Category and tool picker"]
+        U3["Parameter widgets<br/>generated from Param list"]
+        U4["Before / after view"]
+        U5["Panels: how it works, histogram,<br/>pixel inspector, history, info"]
     end
 
-    subgraph Core["core/"]
-        P["preprocess.prepare<br/>resize + mirror"]
-        H["helpers<br/>HSV masks, cleanup, contours,<br/>alpha overlay, labels"]
+    subgraph Core["studio/"]
+        R["registry.py<br/>Tool, Param, run, describe"]
+        UT["utils.py<br/>masks, alpha overlay, faces, emoji"]
     end
 
-    R{"Spell router<br/>selected in sidebar"}
-
-    subgraph Spells["spells/"]
-        S1["Invisibility cloak"]
-        S2["Air drawing"]
-        S3["Face filters"]
-        S4["Motion alarm"]
-        S5["Art filters"]
+    subgraph Ops["studio/ops/ (73 tools)"]
+        O1["adjust"] --- O2["color"] --- O3["geometry"] --- O4["reshape"]
+        O5["filters"] --- O6["edges"] --- O7["threshold"] --- O8["histogram"]
+        O9["artistic"] --- O10["annotate"] --- O11["masks"] --- O12["detect"]
     end
 
-    subgraph Outputs
-        O1["Live view + FPS"]
-        O2["Under the hood<br/>steps + histogram"]
-        O3["Gallery / downloads"]
-        O4["Processed video"]
-    end
-
-    A1 & A2 & A3 & A4 --> P --> R
-    R --> S1 & S2 & S3 & S4 & S5
-    S1 & S2 & S3 & S4 & S5 -.uses.-> H
-    S1 & S2 & S3 & S4 & S5 --> O1 & O2 & O3 & O4
+    U2 --> R
+    U3 --> R
+    R --> Ops
+    Ops -.uses.-> UT
+    R --> U4 & U5
 ```
 
-### The spell contract
+### What a tool is
 
-Every spell implements the same small interface, which is what lets the UI, the Under the hood tab and
-the video exporter work with any spell without special cases.
+A tool is a **pure function** `fn(img, **params) -> img` (BGR `uint8` in, BGR `uint8` out) registered with a
+decorator that also declares its parameters. The UI builds every widget from that declaration, so adding a tool
+never requires touching `app.py`.
 
 ```mermaid
 classDiagram
-    class Spell {
-        +str name
-        +str tagline
-        +str explain
-        +sidebar(ui, mode) dict
-        +process(frame, params, state) tuple
+    class Param {
+        +kind
+        +key
+        +label
+        +default
+        +min / max / step / options
+        +when(values) bool
     }
-    class Cloak
-    class AirDraw
-    class FaceFilter
-    class MotionAlarm
-    class ArtFilters
-    Spell <|-- Cloak
-    Spell <|-- AirDraw
-    Spell <|-- FaceFilter
-    Spell <|-- MotionAlarm
-    Spell <|-- ArtFilters
-
-    class MirrorProcessor {
-        +update(spell, params, flip, width, fps)
-        +recv(frame) VideoFrame
-        -states dict
-        -latest_steps list
+    class Tool {
+        +name
+        +category
+        +fn(img, **params) img
+        +params: list~Param~
+        +explain
+        +heavy
     }
-    MirrorProcessor --> Spell : calls process()
+    class Registry {
+        +TOOLS: dict
+        +tool(category, name, params, explain)
+        +run(tool, img, params, aux)
+        +describe(tool, params)
+    }
+    Registry "1" o-- "73" Tool
+    Tool "1" o-- "*" Param
 ```
 
-- `sidebar(ui, mode)` draws the spell's own controls and returns them as a `params` dict.
-- `process(frame, params, state)` returns `(result_bgr, [(step_title, image), ...])`.
-- `state` is a dictionary owned by the spell that survives between frames. It stores things like the
-  captured background, the drawing strokes or the motion model.
+The `when` function hides parameters that do not apply: for example the fill color of **Rotate** is shown only
+when the border mode is *Constant color*.
 
 ---
 
-## How a frame flows through the app
+## How editing works
 
-### Live webcam
-
-In live mode, frames are processed in a background thread owned by `streamlit-webrtc`, while the sidebar runs
-in Streamlit's script thread. The two threads share settings through a lock, and button clicks are passed as
-counters so the worker thread can detect each new click exactly once.
+Edits are **non-destructive**. The history stores only `(tool name, parameters)` for every step, and a cache keeps
+the image after each step, so undo is instant and any step can be removed and the rest replayed.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant B as Browser camera
-    participant W as WebRTC worker thread
-    participant M as MirrorProcessor
-    participant S as Active spell
-    participant UI as Streamlit script
+    participant U as You
+    participant S as Sidebar
+    participant E as Editor state
+    participant T as Tool function
 
-    UI->>M: update(spell, params, flip, width)
-    loop every frame
-        B->>W: video frame
-        W->>M: recv(frame)
-        M->>M: prepare: resize + mirror
-        M->>S: process(frame, params, state)
-        S-->>M: result + intermediate steps
-        M->>M: draw FPS, keep latest steps
-        M-->>B: processed frame
-    end
-    UI->>M: read latest_steps for Under the hood
+    U->>S: move a slider
+    S->>E: params changed
+    E->>T: run(tool, current image, params)
+    T-->>E: preview image
+    E-->>U: before / after view updates
+    U->>S: press Apply
+    S->>E: history.append(tool, params)
+    E->>E: cache.append(preview)
+    U->>E: Undo
+    E->>E: history.pop(), cache.pop()
+    U->>E: Remove step 2
+    E->>T: replay steps 2..n from cache[1]
 ```
-
-### Uploaded video
-
-```mermaid
-flowchart LR
-    U["Upload video"] --> T["Save to temp file"] --> C["cv2.VideoCapture"]
-    C --> L{"Next frame?"}
-    L -- yes --> P["prepare"] --> S["spell.process"] --> W["cv2.VideoWriter"] --> L
-    L -- no --> D["Preview + download<br/>middle frame steps to Under the hood"]
-```
-
-The writer tries codecs in order of browser support (`avc1`, then `VP80` WebM, then `mp4v`) and uses the first
-one the installed OpenCV build can open.
-
----
-
-## Spell pipelines in detail
-
-Every image below was generated by running the real spell code from this repository.
-
-### Invisibility cloak
-
-<p align="center"><img src="docs/images/cloak_pipeline.png" alt="Invisibility cloak pipeline" width="100%"></p>
-
-```mermaid
-flowchart LR
-    F["Frame"] --> HSV["BGR to HSV"] --> M["inRange<br/>two ranges for red"]
-    M --> C["Opening + dilation"]
-    C --> A["bitwise_and<br/>background, mask"]
-    C --> N["bitwise_not"] --> B["bitwise_and<br/>frame, inverse mask"]
-    BG[("Saved background")] --> A
-    A & B --> R["cv2.add = result"]
-```
-
-**Capturing the background.** In live mode the background is not a single frame. After a three-second
-countdown the spell collects 30 frames and takes their per-pixel **median**, which removes sensor noise and
-anything that moved during capture.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> NoBackground
-    NoBackground --> Countdown: click Capture background
-    Countdown --> Collecting: 3 seconds pass
-    Collecting --> Collecting: frame count below 30
-    Collecting --> Ready: median of 30 frames
-    Ready --> Countdown: click again to recapture
-    Ready --> Ready: replace cloak pixels
+    [*] --> Original: upload or sample photo
+    Original --> Previewing: change a setting
+    Previewing --> Previewing: change again
+    Previewing --> Applied: Apply
+    Applied --> Previewing: change a setting
+    Applied --> Applied: Undo / Redo / Remove step
+    Applied --> Original: Reset all
 ```
 
-In snapshot and upload modes the current photo (or an uploaded image) becomes the background. In video mode the
-median of the first 30 frames is used automatically.
-
-**Why red needs two ranges.** OpenCV stores hue from 0 to 179 on a circle, and red sits at both ends of it.
-The red preset therefore combines `0-10` and `170-179` with a bitwise OR.
-
-### Air drawing
-
-<p align="center"><img src="docs/images/airdraw_pipeline.png" alt="Air drawing pipeline" width="100%"></p>
-
-```mermaid
-flowchart LR
-    F["Frame"] --> M["HSV mask of pen color"] --> C["Clean mask"] --> K{"Largest contour<br/>above min area?"}
-    K -- no --> E["End current stroke"]
-    K -- yes --> Ctr["Centroid from moments"] --> Sm["Average of last 5 points"] --> Add["Append to stroke"]
-    Add & E --> Cv["Render strokes on canvas"] --> O["Overlay canvas on frame"]
-```
-
-- Lifting the pen out of view ends the stroke, so you can write separate letters.
-- **Undo** removes the last stroke and **Clear** empties the canvas.
-- Brush color and thickness are stored per stroke, so changing them does not repaint older lines.
-
-### Face filters
-
-<p align="center"><img src="docs/images/face_pipeline.png" alt="Face filters pipeline" width="75%"></p>
-
-```mermaid
-flowchart LR
-    F["Frame"] --> G["Grayscale"] --> EQ["equalizeHist"] --> HC["Haar face cascade"]
-    HC --> SM["Blend with previous box<br/>to reduce jitter"]
-    SM --> EY["Haar eye cascade<br/>inside upper half of face"]
-    SM --> ST["Scale stickers to face width"] --> AB["Alpha blend onto frame"]
-    SM --> PX["Pixelate: shrink then enlarge"]
-    SM --> BL["Blur: large Gaussian kernel"]
-```
-
-The stickers are drawn with OpenCV primitives into transparent BGRA images at startup, so the project ships
-without any image assets. Blending uses the alpha channel: `out = alpha * sticker + (1 - alpha) * frame`.
-
-### Motion alarm
-
-<p align="center"><img src="docs/images/motion_pipeline.png" alt="Motion alarm pipeline" width="100%"></p>
-
-```mermaid
-flowchart LR
-    F["Frame"] --> G["Gray + Gaussian blur 21x21"]
-    G --> AW["accumulateWeighted<br/>background model"]
-    G --> D["absdiff with model"]
-    AW --> D
-    D --> T["Threshold + dilate"] --> C["Contours above min area"]
-    C --> Y{"Any?"}
-    Y -- yes --> AL["Red boxes, red border,<br/>count new alarm"]
-    Y -- no --> Q["All quiet"]
-```
-
-The background model adapts slowly (adjustable speed), so gradual lighting changes are absorbed while real
-movement still stands out. An alarm is counted only on the transition from quiet to moving, not on every frame.
-
-### Art filters
-
-<p align="center"><img src="docs/images/cartoon_pipeline.png" alt="Cartoon filter pipeline" width="100%"></p>
-
-| Style | Pipeline |
-|---|---|
-| Cartoon | Bilateral filter twice (flattens colors, keeps edges), median blur and adaptive threshold for ink lines, then `bitwise_and` |
-| Pencil sketch | Grayscale, invert, Gaussian blur, then color dodge: `gray / (255 - blurred_inverse) * 256` |
-| Vintage | 3x3 sepia color matrix with `cv2.transform`, Gaussian vignette, light film grain |
-| Emboss | Custom 3x3 directional kernel with `cv2.filter2D` |
-| Neon edges | Canny edges, dilated and colored in HSV, blurred into a glow and added over a darkened frame |
-
-All styles share brightness and contrast controls (`convertScaleAbs`, that is `alpha * img + beta` with clipping)
-and an optional fast mode that processes at half resolution and scales the result back up.
+- Big uploads are scaled to a **working size** (640 to 2048 px on the longest side) so every tool stays interactive.
+  Changing the working size replays the whole history on the new size.
+- Previews are cached by `(history, tool, parameters)`, so switching tabs or panels does not recompute anything.
+- Slow tools (non-local means denoise, stylization, detail enhance, feature matching) preview on demand.
+- After **Apply**, the preview pauses until a setting changes, so the tool is never shown applied twice by mistake.
 
 ---
 
 ## Concepts covered
 
-The project was designed to bring together the classic computer vision topics of the course in one application.
+The tools cover all the classic image-processing topics of the course.
 
-| Topic | Where it is used |
+| Topic | Tools |
 |---|---|
-| Reading images and video, color spaces (BGR, RGB, HSV, gray) | All sources, every color mask |
-| Image geometry: resize, flip, crop, ROI | `prepare`, sticker scaling, pixelation |
-| Image arithmetic and blending | `cv2.add`, color dodge, alpha blending |
-| Bitwise operations and masking | Invisibility cloak, cartoon, canvas overlay |
-| Brightness, contrast, histograms | Art filter controls, histogram equalization, result histogram |
-| Noise removal and smoothing | Gaussian, median and bilateral filters |
-| Morphology | Opening and dilation for mask cleanup |
-| Edge detection | Canny, adaptive threshold edges, emboss kernel |
-| Thresholding | Motion mask, cartoon ink lines |
-| Contours and moments | Pen tracking, motion boxes |
-| Color tracking | Cloak and pen detection |
-| Motion detection | Running average and frame differencing |
-| Haar cascades | Face and eye detection |
-| Video writing | Processed video export |
+| Pixels, channels, color spaces | Pixel inspector, Grayscale, Color space explorer, Channels, Split channels |
+| Drawing shapes and text | Shapes, Text, Watermark |
+| Resizing, aspect ratio, cropping, ROI | Resize, Crop, Crop to aspect ratio |
+| Padding and borders | Border and padding, border modes in Rotate, Translate, Shear and Perspective |
+| Flipping, translation, rotation | Flip, Translate, Rotate, Rotate 90 degrees |
+| Affine and perspective transforms | Shear, Perspective, Document scanner |
+| Image arithmetic | Blend with another image, Brightness and contrast, Sharpen |
+| Bitwise operations and masking | Bitwise operations, Shape mask, Color range, Chroma key, Frame shape |
+| Brightness and contrast | Brightness and contrast, Gamma, Normalize |
+| Histograms, equalization, normalization | Histogram panel, Histogram equalization, CLAHE, Normalize |
+| Noise and blurring | Add noise, Blur, Motion blur, Denoise, Custom kernel |
+| Thresholding | Threshold, Adaptive threshold |
+| Edge detection | Canny, Sobel, Laplacian, Scharr, Prewitt |
+| Morphology | Morphology |
+| Contours | Contours and shapes, Document scanner |
+| Feature detection and matching | Corners, ORB keypoints, Feature matching |
+| Object detection | Faces and eyes, Template matching, Face stickers, Face size |
 
 ```mermaid
 mindmap
-  root((Magic Mirror))
-    Color
-      HSV masks
-      Histogram equalization
-      Sepia matrix
+  root((Photo Studio))
+    Pixels and color
+      BGR, HSV, LAB
+      Channels
+      Grayscale
     Geometry
-      Resize and flip
-      ROI and pixelation
-    Arithmetic
-      Bitwise masking
-      Alpha blending
-      Color dodge
+      Resize and crop
+      Rotate and flip
+      Affine and perspective
+    Intensity
+      Brightness and contrast
+      Gamma
+      Histograms
     Filtering
-      Gaussian and median
-      Bilateral
+      Blur and noise
+      Convolution kernels
+      Edges
+    Binary images
+      Thresholds
       Morphology
-    Structure
-      Canny edges
-      Contours and moments
-      Thresholding
+      Contours
+    Composition
+      Masks and bitwise
+      Blending
+      Text and emoji
     Detection
-      Haar cascades
-      Motion detection
+      Haar faces
+      Corners and ORB
+      Template matching
 ```
 
 ---
@@ -357,21 +423,29 @@ mindmap
 ## Project structure
 
 ```
-magic_mirror/
-├── app.py                  Streamlit UI: sidebar, tabs, webcam, image and video handling
-├── core/
-│   ├── preprocess.py       resize + mirror, image decoding, BGR to RGB
-│   └── helpers.py          HSV masks, mask cleanup, contours, alpha overlay, text labels
-├── spells/
-│   ├── __init__.py         registry of all spells
-│   ├── base.py             Spell interface, action buttons, shared color controls
-│   ├── cloak.py            Invisibility cloak
-│   ├── air_draw.py         Air drawing
-│   ├── face_filter.py      Face filters and generated stickers
-│   ├── motion_alarm.py     Motion alarm
-│   └── art_filters.py      Cartoon, pencil, vintage, emboss, neon
-├── docs/images/            Pipeline images used in this README
-├── .streamlit/config.toml  Theme and upload size
+.
+├── app.py                    Streamlit editor: sidebar, preview, history, panels
+├── studio/
+│   ├── registry.py           Tool and Param definitions, run, describe
+│   ├── utils.py              Shared helpers: masks, alpha overlay, faces, emoji
+│   └── ops/
+│       ├── adjust.py         Brightness, gamma, HSV, temperature, sharpen, invert, posterize
+│       ├── color.py          Grayscale, color spaces, channels, HSV color range
+│       ├── geometry.py       Resize, crop, rotate, flip, translate, shear, perspective
+│       ├── reshape.py        Face size, bulge, swirl, slim, height stretch
+│       ├── filters.py        Blur, motion blur, noise, denoise, custom kernel
+│       ├── edges.py          Canny, Sobel, Laplacian, Scharr, Prewitt
+│       ├── threshold.py      Threshold, adaptive threshold, morphology
+│       ├── histogram.py      Equalization, CLAHE, normalization
+│       ├── artistic.py       Cartoon, sketch, sepia, vintage, pixelate, color maps and more
+│       ├── annotate.py       Text, emoji, stickers, shapes, borders, watermark, frames
+│       ├── masks.py          Blending, shape masks, bitwise operations, chroma key
+│       └── detect.py         Faces, contours, corners, ORB, matching, document scanner
+├── assets/
+│   ├── sample.jpg            Photo shown before you upload one
+│   └── emoji/                33 emoji images with transparency
+├── docs/images/              Tool catalog images used in this README
+├── .streamlit/config.toml    Theme and upload size
 └── requirements.txt
 ```
 
@@ -379,7 +453,7 @@ magic_mirror/
 
 ## Getting started
 
-**Requirements:** Python 3.10 or newer and a webcam for live mode.
+**Requirements:** Python 3.10 or newer.
 
 ```bash
 git clone https://github.com/Hagar-Ghazi/magic-mirror.git
@@ -403,29 +477,32 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-The app opens at `http://localhost:8501`.
+The editor opens at `http://localhost:8501` with a sample photo loaded.
 
 > OpenCV is pinned below version 5 on purpose. OpenCV 5 moved Haar cascades out of the main package, and the
-> face filters depend on them.
+> face tools depend on them.
 
 ---
 
-## Using the app
+## Using the editor
 
-1. **Choose a source** in the sidebar: Webcam live, Camera snapshot, Upload image or Upload video.
-2. **Choose a spell** and tune its settings. Changes apply to the next frame.
-3. Watch the **Live** tab, then open **Under the hood** to see each intermediate image.
-4. Save results to the **Gallery** or download them.
+1. **Upload a photo** in the sidebar (JPG, PNG, WEBP, BMP or TIFF), or start with the sample photo.
+2. **Pick a category**, then a **tool**. Its settings appear below it.
+3. Move the sliders and watch the **After** image update.
+4. Press **Apply** to keep the change. Repeat with other tools to build up an edit.
+5. Use **Undo**, **Redo**, **Reset all**, or the **History** panel to remove or go back to any step.
+6. **Download** the result as PNG or JPG.
 
-Tips for the best results:
-
-| Spell | Tip |
+| Panel | Use it to |
 |---|---|
-| Invisibility cloak | Use a single bright color that appears nowhere else in the scene, keep the camera still, and step out of view while the background is captured |
-| Air drawing | A small, saturated object works best (a blue or green bottle cap). Raise "Min pen size" if other objects get detected |
-| Face filters | Face the camera with even lighting. Raise "Min neighbors" to remove false detections |
-| Motion alarm | Keep the camera fixed. Raise "Min moving area" to ignore small movements such as curtains |
-| Art filters | Turn on fast mode in live video for a smoother frame rate |
+| How it works | Read what the current tool does and see its code |
+| Histogram | Compare the value distribution before and after |
+| Pixel inspector | Read the exact values of one pixel in five color spaces |
+| History | See every applied step, remove one, or go back to it |
+| Image info | Check size, aspect ratio, NumPy shape and file sizes |
+
+Tools that need a second image (blending, bitwise with an image, chroma key background, feature matching,
+template matching) show an extra uploader in the sidebar.
 
 ---
 
@@ -434,100 +511,49 @@ Tips for the best results:
 1. Push this repository to GitHub.
 2. Sign in at [share.streamlit.io](https://share.streamlit.io) with your GitHub account.
 3. Click **Create app**, choose this repository, branch `main` and main file `app.py`.
-4. Deploy. Dependencies are installed from `requirements.txt`, which uses `opencv-python-headless`
-   because cloud servers have no display.
+4. Deploy. Dependencies come from `requirements.txt`, which uses `opencv-python-headless` because cloud
+   servers have no display.
 
-### Enabling live webcam on the cloud (TURN server)
-
-WebRTC tries to connect the browser and the server directly. On Streamlit Cloud that usually fails behind
-NAT and firewalls, and the app shows *"Connection is taking longer than expected"*. A **TURN server** fixes
-this by relaying the video.
-
-```mermaid
-flowchart LR
-    B["Browser camera"] -- "direct path blocked" --x S["Streamlit Cloud server"]
-    B -- "video" --> T["TURN relay"] -- "video" --> S
-```
-
-The app reads TURN credentials from the app secrets (Streamlit Cloud: **Settings, Secrets**) and uses the
-first provider that works:
-
-| Order | Provider | Secrets | Free tier |
-|---|---|---|---|
-| 1 | Any static TURN server, for example [Metered](https://www.metered.ca/stun-turn) | `TURN_URLS` (comma separated), `TURN_USERNAME`, `TURN_CREDENTIAL` | 20 GB per month |
-| 2 | [Cloudflare Realtime TURN](https://developers.cloudflare.com/realtime/turn/) | `CLOUDFLARE_TURN_KEY_ID`, `CLOUDFLARE_TURN_KEY_API_TOKEN` | 1,000 GB per month |
-| 3 | Twilio | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Trial credit |
-| 4 | Hugging Face relay | `HF_TOKEN` | Free, but the service is sometimes down |
-
-**Example with Metered** (sign up, create a TURN app, and copy the credentials it shows):
-
-```toml
-TURN_URLS = "turn:global.relay.metered.ca:80,turn:global.relay.metered.ca:80?transport=tcp,turn:global.relay.metered.ca:443,turns:global.relay.metered.ca:443?transport=tcp"
-TURN_USERNAME = "your-username"
-TURN_CREDENTIAL = "your-credential"
-```
-
-**Example with Cloudflare** (Cloudflare dashboard, **Realtime, TURN Server, Create**):
-
-```toml
-CLOUDFLARE_TURN_KEY_ID = "your-turn-token-id"
-CLOUDFLARE_TURN_KEY_API_TOKEN = "your-api-token"
-```
-
-The Live tab always shows which relay is active, or why none could be used, under the video. Never commit
-these values to the repository. Without a TURN server, **Camera snapshot** mode still works everywhere because
-it sends single photos over normal HTTP.
+No secrets or extra services are needed: everything runs on the uploaded image inside the app.
 
 ---
 
-## Design decisions and edge cases
+## Adding a new tool
 
-| Situation | How it is handled |
-|---|---|
-| Spell raises an error in live mode | The error is printed on the frame and the stream keeps running |
-| Background captured with you still in view | Three-second countdown, then a median of 30 frames removes moving content |
-| Red cloak color | Two hue ranges joined with bitwise OR |
-| Noisy masks | Morphological opening and dilation with an adjustable kernel |
-| Pen leaves the frame | The current stroke ends instead of drawing a jump across the screen |
-| Shaky pen or face boxes | Point averaging for the pen, blending with the previous box for faces |
-| No face found | A clear on-screen message instead of a silent failure |
-| Gradual lighting changes | Slowly adapting running-average background in the motion alarm |
-| Slow filters | Adjustable processing width, half-resolution fast mode, FPS counter |
-| Button clicks across threads | Clicks are counters; each spell reacts once to each new value |
-| Browser cannot play the video codec | Codec fallback chain and a download button |
-| Webcam blocked or unavailable | Snapshot and upload modes work without WebRTC |
-
----
-
-## Extending: add your own spell
-
-1. Create `spells/my_spell.py`:
+Create a function in the right module under `studio/ops/` and register it with the `tool` decorator:
 
 ```python
-import cv2
-from spells.base import Spell
+import numpy as np
+
+from studio.registry import Param as P
+from studio.registry import tool
 
 
-class Grayscale(Spell):
-    name = "Grayscale"
-    icon = ""
-    tagline = "The simplest spell."
-    explain = "Converts the frame to gray with `cv2.cvtColor`."
-
-    def sidebar(self, ui, mode):
-        return {"keep_edges": ui.toggle("Overlay edges", False)}
-
-    def process(self, frame, params, state):
-        gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-        result = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
-        if params["keep_edges"]:
-            result[cv2.Canny(gray, 80, 160) > 0] = (0, 255, 255)
-        return result, [("Original", frame), ("Gray", gray)]
+@tool("Adjust", "Solarize", [
+    P("slider", "threshold", "Threshold", 128, 0, 255, 1),
+], explain="""
+Pixels brighter than the threshold are inverted, like an over-exposed film.
+""")
+def solarize(img, threshold):
+    return np.where(img < threshold, img, 255 - img).astype(np.uint8)
 ```
 
-2. Register it in `spells/__init__.py` by adding `Grayscale()` to `ALL_SPELLS`.
+The new tool appears in the sidebar with its slider, works with Apply, Undo and History, and gets its own
+How it works panel. No change to `app.py` is needed.
 
-The new spell automatically gets the live view, Under the hood, Gallery, How it works and video export.
+---
+
+## Design decisions
+
+| Decision | Reason |
+|---|---|
+| Tools are pure functions on BGR `uint8` images | Easy to test, chain, replay and reuse outside Streamlit |
+| Parameters are declared, not hand-written widgets | The UI, history labels and defaults all come from one place |
+| Positions and sizes are percentages | Settings stay meaningful when the working size changes |
+| Single-channel results are converted back to BGR | Every tool can follow every other tool in the history |
+| A working size limit | Keeps live preview fast for 12-megapixel phone photos |
+| Emoji are PNG images, not font glyphs | OpenCV's Hershey fonts cannot draw emoji; images also look the same on every server |
+| Failures are shown on the image | A tool that finds no face or no page says so instead of failing silently |
 
 ---
 
@@ -536,25 +562,23 @@ The new spell automatically gets the live view, Under the hood, Gallery, How it 
 | Problem | Fix |
 |---|---|
 | `AttributeError: module 'cv2' has no attribute 'CascadeClassifier'` | OpenCV 5 is installed. Run `pip install "opencv-python-headless<5"` |
-| "Connection is taking longer than expected" | No working TURN relay. Read the message under the video, add Metered or Cloudflare secrets (see deployment section), or switch to Camera snapshot |
-| Cloak removes parts of the room too | The cloak color appears elsewhere. Pick another color or raise the minimum saturation |
-| Pen is not detected | Use the Under the hood tab to inspect the HSV mask, then adjust the color sliders |
-| Low frame rate | Lower the processing width or enable fast mode |
+| "No face found" | Haar cascades need a frontal, well-lit human face. Use **Manual point** in Face size, or lower the detection strictness |
+| Arabic or other non-Latin text shows as question marks | OpenCV's built-in Hershey fonts support only basic Latin characters |
+| A tool feels slow | Lower the working size in the sidebar, or turn off live preview for that tool |
+| Document scanner finds no page | The page needs four visible edges on a contrasting background; adjust the edge thresholds |
 
 ---
 
-## Tech stack
+## Tech stack and credits
 
 | Library | Role |
 |---|---|
 | [Streamlit](https://streamlit.io) | Web interface |
-| [streamlit-webrtc](https://github.com/whitphx/streamlit-webrtc) | Real-time webcam streaming |
 | [OpenCV](https://opencv.org) | All image processing |
-| [NumPy](https://numpy.org) | Array operations |
-| [PyAV](https://github.com/PyAV-Org/PyAV) | Video frame conversion for WebRTC |
+| [NumPy](https://numpy.org) | Array math, remapping grids, noise |
 | [pandas](https://pandas.pydata.org) | Histogram chart data |
 
----
+Emoji images come from [Microsoft Fluent Emoji](https://github.com/microsoft/fluentui-emoji) (MIT License).
 
 Built as a project for the ITI *Computer Vision and Pretrained Models* course, using only the classic
 computer vision part of the material.
