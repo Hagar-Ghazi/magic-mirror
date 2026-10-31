@@ -21,7 +21,7 @@ KERNELS = {
 
 @tool("Blur and noise", "Blur", [
     P("select", "kind", "Type", "Gaussian", options=["Average (box)", "Gaussian", "Median", "Bilateral"]),
-    P("slider", "ksize", "Kernel size", 9, 1, 75, 2, when=lambda v: v["kind"] != "Bilateral"),
+    P("slider", "ksize", "Kernel size", 21, 1, 75, 2, when=lambda v: v["kind"] != "Bilateral"),
     P("slider", "sigma", "Sigma (0 = from kernel size)", 0.0, 0.0, 30.0, 0.5, when=lambda v: v["kind"] == "Gaussian"),
     P("slider", "diameter", "Neighbourhood diameter", 9, 1, 25, 1, when=lambda v: v["kind"] == "Bilateral"),
     P("slider", "sigma_color", "Sigma color", 75, 1, 250, 1, when=lambda v: v["kind"] == "Bilateral"),
@@ -106,7 +106,7 @@ def denoise(img, strength, template, search):
 
 
 @tool("Blur and noise", "Custom kernel (convolution)", [
-    P("select", "preset", "Kernel", "Sharpen", options=list(KERNELS)),
+    P("select", "preset", "Kernel", "Emboss", options=list(KERNELS)),
     P("textarea", "custom", "Kernel values (rows on lines)", KERNELS["Custom"], when=lambda v: v["preset"] == "Custom"),
     P("toggle", "normalize", "Divide by sum (keep brightness)", True),
     P("slider", "delta", "Add offset", 0, 0, 128, 1),

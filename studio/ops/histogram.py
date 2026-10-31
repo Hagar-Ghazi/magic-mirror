@@ -45,7 +45,7 @@ def clahe(img, clip, tiles, mode):
 
 @tool("Histogram", "Normalize (contrast stretch)", [
     P("range", "out_range", "Output range", (0, 255), 0, 255, 1),
-    P("slider", "clip", "Ignore darkest/brightest (%)", 0.0, 0.0, 5.0, 0.1),
+    P("slider", "clip", "Ignore darkest/brightest (%)", 2.0, 0.0, 5.0, 0.1),
     P("select", "mode", "Apply to", "Color (luminance only)", options=["Color (luminance only)", "Each channel separately"]),
 ], explain="""
 **Min-max normalization** maps the darkest pixel to the new minimum and the brightest to the new maximum

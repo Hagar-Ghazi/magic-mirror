@@ -74,7 +74,7 @@ def color_space(img, space, view):
     P("toggle", "keep_b", "Keep blue", True),
     P("toggle", "keep_g", "Keep green", True),
     P("toggle", "keep_r", "Keep red", True),
-    P("select", "order", "Channel order", "B G R (normal)", options=["B G R (normal)"] + [" ".join(p) for p in itertools.permutations("BGR") if p != ("B", "G", "R")]),
+    P("select", "order", "Channel order", "R G B", options=["B G R (normal)"] + [" ".join(p) for p in itertools.permutations("BGR") if p != ("B", "G", "R")]),
 ], explain="""
 `cv2.split` gives the B, G and R planes; turning one off sets it to zero, and `cv2.merge` puts them back in any
 order. Swapping to **R G B** shows why OpenCV images look blue-tinted in other libraries: they expect RGB.

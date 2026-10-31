@@ -62,8 +62,8 @@ def face_size(img, target, strength, reach=1.0, x=50, y=40, radius=20):
 @tool("Reshape", "Bulge or pinch", [
     P("slider", "x", "Center X (%)", 50, 0, 100, 1),
     P("slider", "y", "Center Y (%)", 50, 0, 100, 1),
-    P("slider", "radius", "Radius (% of width)", 25, 2, 100, 1),
-    P("slider", "strength", "Strength", 0.5, -0.9, 0.9, 0.05, help="Positive bulges, negative pinches"),
+    P("slider", "radius", "Radius (% of width)", 30, 2, 100, 1),
+    P("slider", "strength", "Strength", 0.75, -0.9, 0.9, 0.05, help="Positive bulges, negative pinches"),
 ], explain="""
 The same smooth radial warp used for faces, at any point: a **fish-eye bulge** (positive) or a **pinch**
 (negative). Implemented with `cv2.remap` and maps computed with NumPy.
@@ -89,8 +89,8 @@ def swirl(img, x, y, radius, angle):
 
 @tool("Reshape", "Slim or widen", [
     P("slider", "cx", "Body center X (%)", 50, 0, 100, 1),
-    P("slider", "half_width", "Body half-width (%)", 25, 5, 50, 1),
-    P("slider", "strength", "Slim (+) or widen (-)", 0.3, -0.7, 0.7, 0.05),
+    P("slider", "half_width", "Body half-width (%)", 32, 5, 50, 1),
+    P("slider", "strength", "Slim (+) or widen (-)", 0.5, -0.7, 0.7, 0.05),
     P("range", "rows", "Apply to rows (%)", (0, 100), 0, 100, 1),
 ], explain="""
 A horizontal-only warp: inside the band around the body center, pixels are read from farther away (slimmer) or
@@ -120,7 +120,7 @@ def slim(img, cx, half_width, strength, rows):
 
 @tool("Reshape", "Height stretch (taller, longer legs)", [
     P("range", "band", "Stretch rows (%)", (55, 100), 0, 100, 1, help="For longer legs choose the lower part of the body"),
-    P("slider", "factor", "Stretch factor", 1.15, 0.5, 1.8, 0.01),
+    P("slider", "factor", "Stretch factor", 1.3, 0.5, 1.8, 0.01),
 ], explain="""
 The image is cut into three horizontal strips. Only the middle strip is resized vertically with `cv2.resize`,
 then the strips are stacked again with `np.vstack`. Stretching the legs region makes a person look taller;

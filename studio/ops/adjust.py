@@ -6,8 +6,8 @@ from studio.registry import tool
 
 
 @tool("Adjust", "Brightness and contrast", [
-    P("slider", "contrast", "Contrast (alpha)", 1.0, 0.0, 3.0, 0.05),
-    P("slider", "brightness", "Brightness (beta)", 0, -127, 127, 1),
+    P("slider", "contrast", "Contrast (alpha)", 1.3, 0.0, 3.0, 0.05),
+    P("slider", "brightness", "Brightness (beta)", 10, -127, 127, 1),
 ], explain="""
 `out = alpha * pixel + beta`, then clipped to 0-255 by `cv2.convertScaleAbs`.
 Alpha above 1 stretches the difference between dark and light pixels (more contrast); beta shifts every
@@ -18,7 +18,7 @@ def brightness_contrast(img, contrast, brightness):
 
 
 @tool("Adjust", "Gamma correction", [
-    P("slider", "gamma", "Gamma", 1.0, 0.1, 3.0, 0.05, help="Below 1 darkens, above 1 brightens shadows"),
+    P("slider", "gamma", "Gamma", 1.8, 0.1, 3.0, 0.05, help="Below 1 darkens, above 1 brightens shadows"),
 ], explain="""
 Each pixel becomes `255 * (pixel / 255) ** (1 / gamma)`. Unlike brightness, gamma lifts or
 darkens the mid-tones while black stays black and white stays white. A lookup table (`cv2.LUT`) applies it fast.
@@ -29,8 +29,8 @@ def gamma(img, gamma):
 
 
 @tool("Adjust", "Hue, saturation and value", [
-    P("slider", "hue", "Hue shift (degrees)", 0, -180, 180, 2),
-    P("slider", "saturation", "Saturation", 1.0, 0.0, 3.0, 0.05),
+    P("slider", "hue", "Hue shift (degrees)", 40, -180, 180, 2),
+    P("slider", "saturation", "Saturation", 1.5, 0.0, 3.0, 0.05),
     P("slider", "value", "Value (lightness)", 1.0, 0.0, 2.0, 0.05),
 ], explain="""
 The image is converted to **HSV**. Hue is an angle on the color wheel (OpenCV stores 0-179, so one unit is
@@ -46,7 +46,7 @@ def hsv_adjust(img, hue, saturation, value):
 
 
 @tool("Adjust", "Temperature and tint", [
-    P("slider", "temperature", "Temperature (cool to warm)", 0, -100, 100, 1),
+    P("slider", "temperature", "Temperature (cool to warm)", -60, -100, 100, 1),
     P("slider", "tint", "Tint (green to magenta)", 0, -100, 100, 1),
 ], explain="""
 Warm adds red and removes blue; cool does the opposite. Tint moves the green channel against red and blue.
@@ -62,8 +62,8 @@ def temperature(img, temperature, tint):
 
 
 @tool("Adjust", "Sharpen", [
-    P("slider", "amount", "Amount", 1.0, 0.0, 4.0, 0.1),
-    P("slider", "radius", "Radius (sigma)", 2.0, 0.5, 10.0, 0.5),
+    P("slider", "amount", "Amount", 2.5, 0.0, 4.0, 0.1),
+    P("slider", "radius", "Radius (sigma)", 3.0, 0.5, 10.0, 0.5),
 ], explain="""
 **Unsharp masking:** blur the image, then add back the difference between the original and the blur:
 `out = (1 + amount) * img - amount * blurred` with `cv2.addWeighted`. Edges get stronger, flat areas stay the same.

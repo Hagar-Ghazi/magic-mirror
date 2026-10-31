@@ -9,8 +9,8 @@ SHAPE_PARAMS = [
     P("select", "shape", "Shape", "Ellipse", options=["Ellipse", "Circle", "Rectangle"]),
     P("slider", "cx", "Center X (%)", 50, 0, 100, 1),
     P("slider", "cy", "Center Y (%)", 50, 0, 100, 1),
-    P("slider", "w", "Width (%)", 60, 1, 100, 1),
-    P("slider", "h", "Height (%)", 70, 1, 100, 1),
+    P("slider", "w", "Width (%)", 50, 1, 100, 1),
+    P("slider", "h", "Height (%)", 55, 1, 100, 1),
 ]
 
 
@@ -61,7 +61,7 @@ processed copy. This is how a "portrait focus" or spotlight effect is made.
 def focus_mask(img, shape, cx, cy, w, h, feather, outside, invert, color="#FFFFFF"):
     mask = shape_mask(img.shape[:2], shape, cx, cy, w, h, feather / 100 * min(img.shape[:2]) * 0.1)
     if outside == "Blur":
-        other = cv2.GaussianBlur(img, (0, 0), max(2, img.shape[1] / 80))
+        other = cv2.GaussianBlur(img, (0, 0), max(3, img.shape[1] / 40))
     elif outside == "Grayscale":
         other = bgr(gray(img))
     elif outside == "Darken":
