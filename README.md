@@ -2,6 +2,8 @@
 
 **A complete photo editor built only with classic computer vision.**
 
+**Live demo:** [opencv-photo-studio.streamlit.app](https://opencv-photo-studio-2deezdsxfsaqfey8rhj7bn.streamlit.app/)
+
 Photo Studio is a Streamlit application that lets you upload a photo and edit it from every angle: light
 and color, geometry, body and face reshaping, blur and noise, edges, thresholds, histograms, artistic
 filters, text, emoji, borders, masks and object detection. It has **73 tools in 12 categories**, and every
