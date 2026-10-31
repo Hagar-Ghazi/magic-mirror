@@ -2,8 +2,6 @@
 
 **A complete photo editor built only with classic computer vision.**
 
-**Live demo:** [magic-mirror-wszt9zjekbyt4kmsmej5jl.streamlit.app](https://magic-mirror-wszt9zjekbyt4kmsmej5jl.streamlit.app/)
-
 Photo Studio is a Streamlit application that lets you upload a photo and edit it from every angle: light
 and color, geometry, body and face reshaping, blur and noise, edges, thresholds, histograms, artistic
 filters, text, emoji, borders, masks and object detection. It has **73 tools in 12 categories**, and every
@@ -456,8 +454,8 @@ mindmap
 **Requirements:** Python 3.10 or newer.
 
 ```bash
-git clone https://github.com/Hagar-Ghazi/magic-mirror.git
-cd magic-mirror
+git clone https://github.com/Hagar-Ghazi/opencv-photo-studio.git
+cd opencv-photo-studio
 python -m venv .venv
 ```
 
