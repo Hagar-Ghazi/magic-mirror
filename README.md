@@ -437,9 +437,33 @@ Tips for the best results:
 4. Deploy. Dependencies are installed from `requirements.txt`, which uses `opencv-python-headless`
    because cloud servers have no display.
 
-> **About live webcam on the cloud.** WebRTC needs a direct connection between the browser and the server.
-> Some networks block it. If the live video does not connect, use **Camera snapshot** mode, which works
-> everywhere because it sends single photos over normal HTTP.
+### Enabling live webcam on the cloud (TURN server)
+
+WebRTC tries to connect the browser and the server directly. On Streamlit Cloud that usually fails behind
+NAT and firewalls, and the app shows *"Connection is taking longer than expected"*. A **TURN server** fixes
+this by relaying the video. The app reads TURN credentials from the app secrets; the free option is a
+Hugging Face token:
+
+1. Create a free account at [huggingface.co](https://huggingface.co) and open
+   **Settings, Access Tokens**. Create a token with the **Read** role.
+2. In Streamlit Cloud open your app, then **Settings, Secrets**, and add:
+
+   ```toml
+   HF_TOKEN = "hf_your_token_here"
+   ```
+
+3. Save. The app restarts and live video connects through the TURN relay.
+
+```mermaid
+flowchart LR
+    B["Browser camera"] -- "direct path blocked" --x S["Streamlit Cloud server"]
+    B -- "video" --> T["TURN relay"] -- "video" --> S
+```
+
+Cloudflare (`CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_KEY_API_TOKEN`) and Twilio
+(`TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN`) credentials work the same way. Never commit these values to
+the repository. Without a TURN server, **Camera snapshot** mode still works everywhere because it sends
+single photos over normal HTTP.
 
 ---
 
@@ -499,7 +523,7 @@ The new spell automatically gets the live view, Under the hood, Gallery, How it 
 | Problem | Fix |
 |---|---|
 | `AttributeError: module 'cv2' has no attribute 'CascadeClassifier'` | OpenCV 5 is installed. Run `pip install "opencv-python-headless<5"` |
-| Live video shows a spinner forever | The network blocks WebRTC. Switch to Camera snapshot |
+| "Connection is taking longer than expected" | No TURN server. Add `HF_TOKEN` to the app secrets (see deployment section), or switch to Camera snapshot |
 | Cloak removes parts of the room too | The cloak color appears elsewhere. Pick another color or raise the minimum saturation |
 | Pen is not detected | Use the Under the hood tab to inspect the HSV mask, then adjust the color sliders |
 | Low frame rate | Lower the processing width or enable fast mode |

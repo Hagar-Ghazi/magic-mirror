@@ -20,7 +20,18 @@ st.set_page_config(page_title="Magic Mirror", page_icon="🪞", layout="wide")
 
 SPELLS = {f"{s.icon} {s.name}": s for s in ALL_SPELLS}
 SOURCES = {"Webcam live": "live", "Camera snapshot": "image", "Upload image": "image", "Upload video": "video"}
-RTC_CONFIG = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+
+# streamlit-webrtc picks a TURN server from these env vars (needed on Streamlit Cloud,
+# where STUN alone usually cannot connect). Copy them from st.secrets if set there.
+TURN_KEYS = ["HF_TOKEN", "CLOUDFLARE_TURN_KEY_ID", "CLOUDFLARE_TURN_KEY_API_TOKEN",
+             "TWILIO_ACCOUNT_SID", "TWILIO_AUTH_TOKEN"]
+try:
+    for k in TURN_KEYS:
+        if k in st.secrets and not os.getenv(k):
+            os.environ[k] = str(st.secrets[k])
+except Exception:  # no secrets file locally
+    pass
+HAS_TURN = any(os.getenv(k) for k in TURN_KEYS)
 
 
 class MirrorProcessor(VideoProcessorBase):
@@ -160,7 +171,6 @@ with tab_live:
             key="mirror",
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=MirrorProcessor,
-            rtc_configuration=RTC_CONFIG,
             media_stream_constraints={"video": True, "audio": False},
             async_processing=True,
         )
@@ -173,6 +183,9 @@ with tab_live:
         else:
             st.info("Press **START** and allow camera access. If the video never connects "
                     "(some networks block WebRTC), switch the source to **Camera snapshot**.")
+            if not HAS_TURN:
+                st.caption("No TURN server configured, so live video may not connect on the cloud. "
+                           "Add `HF_TOKEN` to the app secrets (see README).")
     elif mode == "image":
         if source == "Camera snapshot":
             shot = st.camera_input("Take a photo")
