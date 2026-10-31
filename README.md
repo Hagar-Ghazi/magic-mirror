@@ -441,18 +441,7 @@ Tips for the best results:
 
 WebRTC tries to connect the browser and the server directly. On Streamlit Cloud that usually fails behind
 NAT and firewalls, and the app shows *"Connection is taking longer than expected"*. A **TURN server** fixes
-this by relaying the video. The app reads TURN credentials from the app secrets; the free option is a
-Hugging Face token:
-
-1. Create a free account at [huggingface.co](https://huggingface.co) and open
-   **Settings, Access Tokens**. Create a token with the **Read** role.
-2. In Streamlit Cloud open your app, then **Settings, Secrets**, and add:
-
-   ```toml
-   HF_TOKEN = "hf_your_token_here"
-   ```
-
-3. Save. The app restarts and live video connects through the TURN relay.
+this by relaying the video.
 
 ```mermaid
 flowchart LR
@@ -460,10 +449,34 @@ flowchart LR
     B -- "video" --> T["TURN relay"] -- "video" --> S
 ```
 
-Cloudflare (`CLOUDFLARE_TURN_KEY_ID` and `CLOUDFLARE_TURN_KEY_API_TOKEN`) and Twilio
-(`TWILIO_ACCOUNT_SID` and `TWILIO_AUTH_TOKEN`) credentials work the same way. Never commit these values to
-the repository. Without a TURN server, **Camera snapshot** mode still works everywhere because it sends
-single photos over normal HTTP.
+The app reads TURN credentials from the app secrets (Streamlit Cloud: **Settings, Secrets**) and uses the
+first provider that works:
+
+| Order | Provider | Secrets | Free tier |
+|---|---|---|---|
+| 1 | Any static TURN server, for example [Metered](https://www.metered.ca/stun-turn) | `TURN_URLS` (comma separated), `TURN_USERNAME`, `TURN_CREDENTIAL` | 20 GB per month |
+| 2 | [Cloudflare Realtime TURN](https://developers.cloudflare.com/realtime/turn/) | `CLOUDFLARE_TURN_KEY_ID`, `CLOUDFLARE_TURN_KEY_API_TOKEN` | 1,000 GB per month |
+| 3 | Twilio | `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN` | Trial credit |
+| 4 | Hugging Face relay | `HF_TOKEN` | Free, but the service is sometimes down |
+
+**Example with Metered** (sign up, create a TURN app, and copy the credentials it shows):
+
+```toml
+TURN_URLS = "turn:global.relay.metered.ca:80,turn:global.relay.metered.ca:80?transport=tcp,turn:global.relay.metered.ca:443,turns:global.relay.metered.ca:443?transport=tcp"
+TURN_USERNAME = "your-username"
+TURN_CREDENTIAL = "your-credential"
+```
+
+**Example with Cloudflare** (Cloudflare dashboard, **Realtime, TURN Server, Create**):
+
+```toml
+CLOUDFLARE_TURN_KEY_ID = "your-turn-token-id"
+CLOUDFLARE_TURN_KEY_API_TOKEN = "your-api-token"
+```
+
+The Live tab always shows which relay is active, or why none could be used, under the video. Never commit
+these values to the repository. Without a TURN server, **Camera snapshot** mode still works everywhere because
+it sends single photos over normal HTTP.
 
 ---
 
@@ -523,7 +536,7 @@ The new spell automatically gets the live view, Under the hood, Gallery, How it 
 | Problem | Fix |
 |---|---|
 | `AttributeError: module 'cv2' has no attribute 'CascadeClassifier'` | OpenCV 5 is installed. Run `pip install "opencv-python-headless<5"` |
-| "Connection is taking longer than expected" | No TURN server. Add `HF_TOKEN` to the app secrets (see deployment section), or switch to Camera snapshot |
+| "Connection is taking longer than expected" | No working TURN relay. Read the message under the video, add Metered or Cloudflare secrets (see deployment section), or switch to Camera snapshot |
 | Cloak removes parts of the room too | The cloak color appears elsewhere. Pick another color or raise the minimum saturation |
 | Pen is not detected | Use the Under the hood tab to inspect the HSV mask, then adjust the color sliders |
 | Low frame rate | Lower the processing width or enable fast mode |
